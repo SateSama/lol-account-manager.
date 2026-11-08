@@ -13,6 +13,16 @@ python main.py
 Au premier lancement, crée un mot de passe maître. Il chiffre tout (AES + scrypt)
 et **ne peut pas être récupéré** : si tu l'oublies, il faut recréer le coffre.
 
+## Ne plus retaper le mot de passe maître
+
+À l'ouverture, la case **« Se souvenir sur ce PC »** (cochée par défaut) mémorise le mot de passe maître,
+protégé par Windows (DPAPI). Aux lancements suivants, le coffre s'ouvre tout seul.
+
+- Le souvenir n'est lisible que par ton compte Windows, sur ce PC (fichier `%APPDATA%\LolAccountManager\remember.bin`).
+- Compromis : quiconque ouvre ta session Windows peut ouvrir l'appli. Pour t'en protéger : bouton **🔒 Verrouiller**
+  (oublie le souvenir, le mot de passe sera redemandé) ou l'interrupteur « Ne pas redemander le mot de passe sur ce PC ».
+- Si le mot de passe mémorisé ne marche plus (coffre recréé, autre session Windows), il est oublié et l'écran de saisie réapparaît.
+
 ## Utilisation
 
 1. **+ Ajouter** pour enregistrer un compte (nom affiché, identifiant, mot de passe, note).

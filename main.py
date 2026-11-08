@@ -6,6 +6,7 @@ import tkinter.messagebox as messagebox
 
 import customtkinter as ctk
 
+import remember
 import riot
 import startup
 from vault import Account, Vault, WrongPassword
@@ -64,6 +65,7 @@ class App(ctk.CTk):
         self.geometry("520x620")
         self.minsize(460, 400)
         self.vault = Vault()
+        self._master = ""
         self._busy = False
         self._show_unlock()
 
@@ -72,7 +74,26 @@ class App(ctk.CTk):
         for child in self.winfo_children():
             child.destroy()
 
-    def _show_unlock(self) -> None:
+    def _try_auto_unlock(self) -> bool:
+        """Déverrouille sans rien demander si le mot de passe a été mémorisé sur ce PC."""
+        if not (Vault.exists() and remember.is_enabled()):
+            return False
+        master = remember.load()
+        if not master:
+            remember.forget()  # fichier illisible (autre session Windows...) : on repart propre
+            return False
+        try:
+            self.vault.unlock(master)
+        except (WrongPassword, OSError, ValueError):
+            remember.forget()  # coffre recréé ou mot de passe obsolète
+            return False
+        self._master = master
+        return True
+
+    def _show_unlock(self, auto: bool = True) -> None:
+        if auto and self._try_auto_unlock():
+            self._show_main()
+            return
         self._clear()
         creating = not Vault.exists()
         box = ctk.CTkFrame(self, fg_color="transparent")
@@ -94,8 +115,22 @@ class App(ctk.CTk):
             confirm = ctk.CTkEntry(box, placeholder_text="Confirmer", show="•", width=260)
             confirm.pack(pady=4)
 
+        remember_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(box, text="Se souvenir sur ce PC", variable=remember_var).pack(pady=(6, 0))
+
         error = ctk.CTkLabel(box, text="", text_color="#ff6b6b")
         error.pack(pady=4)
+
+        def finish(master: str) -> None:
+            self._master = master
+            try:
+                if remember_var.get():
+                    remember.save(master)
+                else:
+                    remember.forget()
+            except OSError:
+                pass  # la mémorisation est facultative : on ne bloque pas l'ouverture du coffre
+            self._show_main()
 
         def submit(_event=None) -> None:
             master = pw.get()
@@ -106,14 +141,14 @@ class App(ctk.CTk):
                     error.configure(text="Les deux mots de passe ne correspondent pas.")
                 else:
                     self.vault.create(master)
-                    self._show_main()
+                    finish(master)
                 return
             try:
                 self.vault.unlock(master)
             except WrongPassword:
                 error.configure(text="Mot de passe incorrect.")
                 return
-            self._show_main()
+            finish(master)
 
         ctk.CTkButton(box, text="Créer le coffre" if creating else "Déverrouiller", command=submit, width=260).pack(pady=6)
         self.bind("<Return>", submit)
@@ -127,6 +162,8 @@ class App(ctk.CTk):
         header.pack(fill="x", padx=18, pady=(16, 6))
         ctk.CTkLabel(header, text="Mes comptes", font=ctk.CTkFont(size=22, weight="bold")).pack(side="left")
         ctk.CTkButton(header, text="+ Ajouter", width=90, command=self._add).pack(side="right")
+        ctk.CTkButton(header, text="🔒 Verrouiller", width=100, fg_color="transparent", border_width=1,
+                      command=self._lock).pack(side="right", padx=(0, 8))
 
         self.list_frame = ctk.CTkScrollableFrame(self)
         self.list_frame.pack(fill="both", expand=True, padx=14, pady=6)
@@ -136,6 +173,12 @@ class App(ctk.CTk):
         self.autostart.pack(anchor="w", padx=18, pady=(6, 4))
         if startup.is_enabled():
             self.autostart.select()
+
+        self.remember_switch = ctk.CTkSwitch(self, text="Ne pas redemander le mot de passe sur ce PC",
+                                             command=self._toggle_remember)
+        self.remember_switch.pack(anchor="w", padx=18, pady=(0, 4))
+        if remember.is_enabled():
+            self.remember_switch.select()
 
         self.status = ctk.CTkLabel(self, text="", text_color="gray70", anchor="w")
         self.status.pack(fill="x", padx=18, pady=(0, 12))
@@ -176,6 +219,25 @@ class App(ctk.CTk):
                                   else "Lancement au démarrage désactivé")
         except OSError as exc:
             self.status.configure(text=f"⚠ Impossible de modifier le démarrage : {exc}")
+
+    def _toggle_remember(self) -> None:
+        try:
+            if self.remember_switch.get():
+                remember.save(self._master)
+                self.status.configure(text="Mot de passe mémorisé sur ce PC ✔")
+            else:
+                remember.forget()
+                self.status.configure(text="Le mot de passe sera redemandé au prochain lancement")
+        except OSError as exc:
+            self.remember_switch.deselect()
+            self.status.configure(text=f"⚠ Impossible de modifier la mémorisation : {exc}")
+
+    def _lock(self) -> None:
+        """Verrouille le coffre et oublie le mot de passe mémorisé : il sera redemandé."""
+        remember.forget()
+        self.vault = Vault()
+        self._master = ""
+        self._show_unlock(auto=False)
 
     def _add(self) -> None:
         AccountDialog(self, None, self._saved)
