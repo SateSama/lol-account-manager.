@@ -148,8 +148,8 @@ class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__(fg_color=theme.BG)
         self.title("LoL Account Manager")
-        self.geometry("520x640")
-        self.minsize(460, 420)
+        self.geometry("560x640")
+        self.minsize(520, 420)
         self.vault = Vault()
         self._master = ""
         self._busy = False
@@ -282,7 +282,7 @@ class App(ctk.CTk):
         ghost_button(self, "🔑 Clé API Riot (rang et winrate)", self._ask_key, width=230, height=28).pack(
             anchor="w", padx=18, pady=(2, 6))
 
-        self.status = ctk.CTkLabel(self, text="", text_color=theme.MUTED, anchor="w")
+        self.status = ctk.CTkLabel(self, text="", text_color=theme.MUTED, anchor="w", justify="left", wraplength=460)
         self.status.pack(fill="x", padx=18, pady=(0, 14))
         self._render()
         if stats.load_key():
@@ -322,9 +322,11 @@ class App(ctk.CTk):
                          font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x")
             sub = account.username + (f"  ·  {account.note}" if account.note else "")
             ctk.CTkLabel(info, text=sub, text_color=theme.MUTED, anchor="w").pack(fill="x")
-            rank_label = ctk.CTkLabel(info, text="", anchor="w", justify="left", wraplength=230,
+            rank_label = ctk.CTkLabel(info, text="", anchor="w", justify="left", wraplength=120,
                                        font=ctk.CTkFont(size=12, weight="bold"))
             rank_label.pack(fill="x")
+            # le texte passe à la ligne selon la place disponible : il ne pousse jamais les boutons hors de la carte
+            info.bind("<Configure>", lambda e, lbl=rank_label: lbl.configure(wraplength=max(e.width - 8, 80)), add="+")
             self._rank_labels[account.id] = rank_label
             self._apply_rank(account)
 
@@ -394,7 +396,11 @@ class App(ctk.CTk):
                             else:
                                 result = (f"{info.rank_text()}\n{info.winrate_text()}",
                                           theme.TIER_COLORS.get(info.tier, theme.TEXT))
-                    results.put((account, result))
+                    results.put(("rank", account, result))
+                if fatal:  # message d'aide en bas de la fenêtre, avec la marche à suivre
+                    hint = ("régénère-la sur developer.riotgames.com puis colle-la avec le bouton 🔑"
+                            if "Clé API" in fatal else "réessaie dans une minute avec ↻")
+                    results.put(("status", f"⚠ {fatal} : {hint}"))
             finally:
                 results.put(None)  # fin du travail
 
@@ -409,7 +415,10 @@ class App(ctk.CTk):
                 if item is None:
                     self._refreshing = False
                     return
-                account, result = item
+                if item[0] == "status":
+                    self._show_status(item[1])
+                    continue
+                _kind, account, result = item
                 self._ranks[account.id] = result
                 self._apply_rank(account)
 

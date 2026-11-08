@@ -101,7 +101,7 @@ def _get(url: str, key: str, not_found: str = "Introuvable"):
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         if exc.code in (401, 403):
-            raise StatsError("Clé API refusée ou expirée (bouton 🔑)", fatal=True) from exc
+            raise StatsError("Clé API refusée ou expirée", fatal=True) from exc
         if exc.code == 404:
             raise StatsError(not_found) from exc
         if exc.code == 429:
