@@ -38,7 +38,7 @@ Chaque carte affiche le rang (Solo/Duo, sinon Flex), les LP et le winrate du com
 ## Utilisation
 
 1. **+ Ajouter** pour enregistrer un compte (nom affiché, identifiant, mot de passe, note).
-2. **Connexion** : l'appli ferme le client, le relance et se connecte.
+2. **Connexion** : l'appli ferme le client, le relance et se connecte, puis vérifie que League of Legends s'ouvre (et le relance une fois sinon). Elle ouvre le client LoL, pas une partie : la partie ne démarre que quand tu lances une file.
 3. Ne touche ni au clavier ni à la souris pendant la saisie (3 à 5 secondes).
 
 ## Réglages si la saisie rate

@@ -603,6 +603,11 @@ class App(ctk.CTk):
                 riot.login(account.username, account.password, self._set_status)
                 self._set_status(f"Connexion envoyée pour « {account.label} » ✔")
                 logged_in = True
+                if riot.ensure_league_launched(self._set_status):
+                    self._set_status(f"League of Legends lancé avec « {account.label} » ✔")
+                else:
+                    self._set_status("⚠ Le client LoL ne s'est pas ouvert : vérifie le code de double authentification, "
+                                     "ou lance-le depuis le Riot Client.")
             except riot.RiotError as exc:
                 self._set_status(f"⚠ {exc}")
             except Exception as exc:  # erreur inattendue : on l'affiche plutôt que de planter

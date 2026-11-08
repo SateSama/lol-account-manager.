@@ -27,7 +27,8 @@ RIOT_PROCESSES = [
     "LeagueClientUx.exe",
     "LeagueClientUxRender.exe",
 ]
-GAME_PROCESS = "League of Legends.exe"
+GAME_PROCESS = "League of Legends.exe"      # la partie elle-même (existe seulement pendant un match)
+LEAGUE_CLIENT = "LeagueClientUx.exe"          # le client LoL (salon, file d'attente...)
 DEFAULT_CLIENT = r"C:\Riot Games\Riot Client\RiotClientServices.exe"
 SESSION_FILE = (
     Path(os.environ.get("LOCALAPPDATA", ""))
@@ -82,6 +83,41 @@ def _clear_session() -> None:
         SESSION_FILE.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def _launch_league(client: str) -> None:
+    """Demande au Riot Client de lancer League of Legends (au démarrage, ou une 2e fois si besoin)."""
+    subprocess.Popen(
+        [client, "--launch-product=league_of_legends", "--launch-patchline=live"],
+        creationflags=NO_WINDOW,
+    )
+
+
+def _wait_until_running(process: str, timeout: float) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if _is_running(process):
+            return True
+        time.sleep(2)
+    return False
+
+
+def ensure_league_launched(on_status: StatusCallback = lambda _msg: None, *,
+                           first_wait: float = 25.0, second_wait: float = 60.0) -> bool:
+    """Après la connexion : vérifie que le client LoL s'ouvre, et le lance sinon.
+
+    Le Riot Client lance normalement League tout seul une fois connecté. Si ce n'est pas le cas
+    au bout de `first_wait` secondes, on lui redemande une fois. Renvoie True si le client est ouvert.
+    (Le client LoL est le salon : la partie elle-même ne démarre que quand tu lances une file.)
+    """
+    if _wait_until_running(LEAGUE_CLIENT, first_wait):
+        return True
+    on_status("Lancement de League of Legends…")
+    try:
+        _launch_league(find_client())
+    except (RiotError, OSError):
+        return False
+    return _wait_until_running(LEAGUE_CLIENT, second_wait)
 
 
 def _wait_for_window(timeout: float):
@@ -150,10 +186,7 @@ def login(
     _clear_session()
 
     on_status("Lancement du client Riot…")
-    subprocess.Popen(
-        [client, "--launch-product=league_of_legends", "--launch-patchline=live"],
-        creationflags=NO_WINDOW,
-    )
+    _launch_league(client)
 
     on_status("Attente de la fenêtre de connexion…")
     _wait_for_window(startup_timeout)
