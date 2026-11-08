@@ -8,12 +8,15 @@ import tkinter.messagebox as messagebox
 
 import customtkinter as ctk
 
+import lcu
 import remember
 import riot
 import startup
 import stats
 import theme
 from vault import Account, Vault, WrongPassword
+
+AUTO_REFRESH_MS = 30 * 60 * 1000  # actualisation automatique des rangs : toutes les 30 minutes
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -69,7 +72,7 @@ class AccountDialog(ctk.CTkToplevel):
         self.username = self._field("Identifiant Riot", account.username if account else "")
         self.password = self._field("Mot de passe", account.password if account else "", secret=True)
         self.note = self._field("Note (facultatif)", account.note if account else "")
-        self.riot_id = self._field("Riot ID pour le rang (Nom#TAG, facultatif)", account.riot_id if account else "")
+        self.riot_id = self._field("Riot ID (Nom#TAG) : rempli tout seul à la 1re connexion", account.riot_id if account else "")
 
         ctk.CTkLabel(self, text="Serveur", anchor="w", text_color=theme.MUTED).pack(fill="x", padx=24, pady=(14, 2))
         self.region = ctk.CTkOptionMenu(
@@ -111,7 +114,7 @@ class KeyDialog(ctk.CTkToplevel):
     def __init__(self, parent: ctk.CTk, on_save) -> None:
         super().__init__(parent, fg_color=theme.BG)
         self.title("Clé API Riot")
-        self.geometry("420x290")
+        self.geometry("420x330")
         self.resizable(False, False)
         self.transient(parent)
         self.after(150, self.grab_set)
@@ -119,7 +122,9 @@ class KeyDialog(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             self, justify="left", anchor="w", text_color=theme.MUTED, wraplength=370,
-            text="Pour afficher le rang et le winrate, il faut une clé API Riot gratuite :\n"
+            text="Facultatif. Le rang d'un compte est déjà lu automatiquement dans le client LoL quand tu "
+                 "te connectes avec lui. Avec une clé API Riot gratuite, l'appli peut aussi actualiser "
+                 "tous les rangs sans que tu te connectes :\n"
                  "1. Va sur developer.riotgames.com et connecte-toi avec ton compte Riot.\n"
                  "2. Copie la « Development API Key » (commence par RGAPI-).\n"
                  "Elle expire au bout de 24 h : recolle-la quand l'appli le demande.",
@@ -154,8 +159,12 @@ class App(ctk.CTk):
         self._master = ""
         self._busy = False
         self._refreshing = False
+        self._events: queue.Queue = queue.Queue()  # messages des threads de fond (ils n'appellent jamais Tk)
+        self._lcu_gen = 0    # numéro de la lecture du client LoL en cours (pour annuler les anciennes)
+        self._auto_gen = 0   # idem pour l'actualisation automatique
         self._ranks: dict[str, tuple[str, str]] = {}   # id du compte -> (texte, couleur) du rang
         self._rank_labels: dict[str, ctk.CTkLabel] = {}
+        self.after(150, self._pump)
         self._show_unlock()
 
     # ------------------------------------------------------------ déverrouillage
@@ -279,14 +288,14 @@ class App(ctk.CTk):
         if remember.is_enabled():
             self.remember_switch.select()
 
-        ghost_button(self, "🔑 Clé API Riot (rang et winrate)", self._ask_key, width=230, height=28).pack(
+        ghost_button(self, "🔑 Clé API Riot (facultatif)", self._ask_key, width=230, height=28).pack(
             anchor="w", padx=18, pady=(2, 6))
 
         self.status = ctk.CTkLabel(self, text="", text_color=theme.MUTED, anchor="w", justify="left", wraplength=460)
         self.status.pack(fill="x", padx=18, pady=(0, 14))
         self._render()
-        if stats.load_key():
-            self._refresh_ranks()
+        self._refresh_ranks(manual=False)
+        self._schedule_auto_refresh()
 
     def _render(self) -> None:
         for child in self.list_frame.winfo_children():
@@ -340,90 +349,193 @@ class App(ctk.CTk):
             color = theme.OK
         else:
             color = theme.MUTED
-        self.status.configure(text=text, text_color=color)
+        try:
+            self.status.configure(text=text, text_color=color)
+        except (tkinter.TclError, AttributeError):
+            pass  # l'écran a changé (coffre verrouillé) : le message n'a plus de place où s'afficher
+
+    def _rank_display(self, account: Account) -> tuple[str, str]:
+        """Texte et couleur du rang d'une carte : état en cours, sinon dernier rang connu."""
+        session = self._ranks.get(account.id)
+        if session and not (session[0].startswith("⚠") and account.rank):
+            return session  # chargement, « Non classé »... (une erreur ne cache pas le dernier rang connu)
+        if account.rank:
+            try:
+                info = stats.RankInfo.from_dict(account.rank)
+            except (KeyError, ValueError, TypeError):
+                info = None
+            if info is not None:
+                age = stats.age_text(account.rank.get("updated"))
+                text = f"{info.rank_text()}\n{info.winrate_text()}" + (f" · {age}" if age else "")
+                return text, theme.TIER_COLORS.get(info.tier, theme.TEXT)
+        if account.riot_id:
+            return "Rang : clique sur ↻ ou connecte-toi avec ce compte", theme.MUTED
+        return "Rang : connecte-toi une fois avec ce compte (ou ajoute son Riot ID avec ✎)", theme.MUTED
 
     def _apply_rank(self, account: Account) -> None:
-        """Écrit le rang du compte dans sa carte (texte mis en cache, couleur du palier)."""
+        """Écrit le rang du compte dans sa carte."""
         label = self._rank_labels.get(account.id)
         if label is None:
             return
-        if not account.riot_id:
-            text, color = "Ajoute le Riot ID (✎) pour voir le rang", theme.MUTED
-        else:
-            text, color = self._ranks.get(account.id, ("Rang : clique sur ↻ pour actualiser", theme.MUTED))
+        text, color = self._rank_display(account)
         try:
             label.configure(text=text, text_color=color)
         except (tkinter.TclError, AttributeError):
             pass  # la carte a été recréée entre-temps
 
+    def _find_account(self, account_id: str) -> Account | None:
+        return next((a for a in self.vault.accounts if a.id == account_id), None)
+
+    def _refresh_card(self, account_id: str) -> None:
+        account = self._find_account(account_id)
+        if account is not None:
+            self._apply_rank(account)
+
+    def _store_rank(self, account_id: str, info: stats.RankInfo | None, riot_id: str = "") -> None:
+        """Enregistre dans le coffre le dernier rang connu (et le Riot ID s'il vient d'être lu)."""
+        account = self._find_account(account_id)
+        if account is None:
+            return  # coffre verrouillé ou compte supprimé entre-temps
+        if riot_id:
+            account.riot_id = riot_id
+        if info is not None:
+            account.rank = info.to_dict()
+            self._ranks.pop(account_id, None)
+        else:
+            account.rank = {}
+            self._ranks[account_id] = ("Non classé", theme.MUTED)
+        try:
+            self.vault.save()
+        except OSError as exc:
+            self._show_status(f"⚠ Impossible d'enregistrer le rang : {exc}")
+        self._apply_rank(account)
+
+    # ------------------------------------------------------------ threads de fond
+    def _put(self, *event) -> None:
+        """Dépose un message depuis un thread de fond ; la fenêtre le traite dans _pump."""
+        self._events.put(event)
+
+    def _pump(self) -> None:
+        """Côté fenêtre : traite ce que les threads de fond ont déposé."""
+        try:
+            while True:
+                try:
+                    event = self._events.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    self._handle(event)
+                except Exception as exc:  # un message mal formé ne doit pas bloquer les suivants
+                    self._show_status(f"⚠ Erreur : {exc}")
+        finally:
+            self.after(150, self._pump)
+
+    def _handle(self, event: tuple) -> None:
+        kind = event[0]
+        if kind == "status":
+            self._show_status(event[1])
+        elif kind == "done":
+            self._refreshing = False
+        elif kind == "rank":  # chargement, erreur : ("rank", id, texte, couleur)
+            _kind, account_id, text, color = event
+            self._ranks[account_id] = (text, color)
+            self._refresh_card(account_id)
+        elif kind == "known":  # rang reçu de l'API Riot : ("known", id, rang ou None)
+            self._store_rank(event[1], event[2])
+        elif kind == "lcu":  # compte lu dans le client juste après une connexion : ("lcu", id, riot_id, rang)
+            self._store_rank(event[1], event[3], riot_id=event[2])
+            self._show_status("Riot ID et rang lus dans le client LoL ✔")
+        elif kind == "client":  # client déjà ouvert : ("client", riot_id, rang, manuel)
+            _kind, riot_id, info, manual = event
+            match = next((a for a in self.vault.accounts if a.riot_id.casefold() == riot_id.casefold()), None)
+            if match is not None:
+                self._store_rank(match.id, info)
+                if manual:
+                    self._show_status(f"Rang de « {match.label} » lu dans le client LoL ✔")
+            elif manual:
+                self._show_status(f"Le client LoL est connecté avec {riot_id}, un compte que je ne connais pas "
+                                  "encore : connecte-toi avec l'appli ou ajoute ce Riot ID (✎).")
+
+    def _read_client_once(self, manual: bool) -> None:
+        """Si le client LoL est ouvert, lit son compte et son rang (sans clé API)."""
+        conn = lcu.find_connection()
+        if conn is None:
+            if manual:
+                self._put("status", "Client LoL fermé : le rang se lit quand tu te connectes avec l'appli.")
+            return
+        try:
+            riot_id = lcu.read_riot_id(conn)
+            info = lcu.read_rank(conn)
+        except lcu.LcuError:
+            if manual:
+                self._put("status", "Le client LoL n'est pas encore connecté.")
+            return
+        self._put("client", riot_id, info, manual)
+
+    def _watch_client(self, account_id: str, before: lcu.Connection | None, gen: int) -> None:
+        """Après une connexion : attend que le client LoL s'ouvre, puis lit le compte et son rang."""
+        found = lcu.wait_for_account(before, cancel=lambda: gen != self._lcu_gen)
+        if found is not None and gen == self._lcu_gen:
+            self._put("lcu", account_id, found[0], found[1])
+
+    def _fetch_all(self, accounts: list[Account], key: str) -> None:
+        fatal = ""  # erreur qui rend inutile d'interroger les comptes suivants (clé refusée, limite...)
+        try:
+            for account in accounts:
+                if fatal:
+                    self._put("rank", account.id, f"⚠ {fatal}", theme.DANGER)
+                    continue
+                try:
+                    info = stats.fetch_rank(account.riot_id, account.region, key)
+                except stats.StatsError as exc:
+                    self._put("rank", account.id, f"⚠ {exc}", theme.DANGER)
+                    if exc.fatal:
+                        fatal = str(exc)
+                except Exception as exc:  # erreur inattendue : on l'affiche plutôt que de planter
+                    self._put("rank", account.id, f"⚠ Erreur : {exc}", theme.DANGER)
+                else:
+                    self._put("known", account.id, info)
+            if fatal:  # message d'aide en bas de la fenêtre, avec la marche à suivre
+                hint = ("régénère-la sur developer.riotgames.com puis colle-la avec le bouton 🔑"
+                        if "Clé API" in fatal else "réessaie dans une minute avec ↻")
+                self._put("status", f"⚠ {fatal} : {hint}")
+        finally:
+            self._put("done")
+
+    # ------------------------------------------------------------ rangs
     def _ask_key(self) -> None:
         KeyDialog(self, self._refresh_ranks)
 
-    def _refresh_ranks(self) -> None:
-        """Récupère le rang et le winrate de chaque compte qui a un Riot ID (en arrière-plan)."""
+    def _refresh_ranks(self, manual: bool = True) -> None:
+        """Met les rangs à jour : lecture du client LoL s'il est ouvert, puis API Riot si une clé est enregistrée."""
+        threading.Thread(target=self._read_client_once, args=(manual,), daemon=True).start()
         key = stats.load_key()
         if not key:
-            self._show_status("⚠ Ajoute ta clé API Riot (bouton 🔑) pour voir le rang")
+            if manual:
+                self._show_status("Pas de clé API : le rang se met à jour à chaque connexion depuis l'appli.")
             return
         accounts = [a for a in self.vault.accounts if a.riot_id]
         if self._refreshing or not accounts:
             return
         self._refreshing = True
         for account in accounts:
-            self._ranks[account.id] = ("Chargement du rang…", theme.MUTED)
+            if not account.rank:  # sinon le dernier rang connu reste affiché pendant le chargement
+                self._ranks[account.id] = ("Chargement du rang…", theme.MUTED)
             self._apply_rank(account)
+        threading.Thread(target=self._fetch_all, args=(accounts, key), daemon=True).start()
 
-        results: queue.Queue = queue.Queue()  # le thread de fond n'appelle jamais Tk : il dépose ici
+    def _schedule_auto_refresh(self) -> None:
+        """Actualise les rangs toutes les 30 minutes tant que l'écran des comptes est ouvert."""
+        self._auto_gen += 1
+        gen = self._auto_gen
 
-        def work() -> None:
-            fatal = ""  # erreur qui rend inutile d'interroger les comptes suivants (clé refusée, limite...)
-            try:
-                for account in accounts:
-                    if fatal:
-                        result = (f"⚠ {fatal}", theme.DANGER)
-                    else:
-                        try:
-                            info = stats.fetch_rank(account.riot_id, account.region, key)
-                        except stats.StatsError as exc:
-                            result = (f"⚠ {exc}", theme.DANGER)
-                            if exc.fatal:
-                                fatal = str(exc)
-                        except Exception as exc:  # erreur inattendue : on l'affiche plutôt que de planter
-                            result = (f"⚠ Erreur : {exc}", theme.DANGER)
-                        else:
-                            if info is None:
-                                result = ("Non classé", theme.MUTED)
-                            else:
-                                result = (f"{info.rank_text()}\n{info.winrate_text()}",
-                                          theme.TIER_COLORS.get(info.tier, theme.TEXT))
-                    results.put(("rank", account, result))
-                if fatal:  # message d'aide en bas de la fenêtre, avec la marche à suivre
-                    hint = ("régénère-la sur developer.riotgames.com puis colle-la avec le bouton 🔑"
-                            if "Clé API" in fatal else "réessaie dans une minute avec ↻")
-                    results.put(("status", f"⚠ {fatal} : {hint}"))
-            finally:
-                results.put(None)  # fin du travail
+        def tick() -> None:
+            if gen != self._auto_gen:
+                return  # coffre verrouillé ou écran rechargé : cette boucle est périmée
+            self._refresh_ranks(manual=False)
+            self.after(AUTO_REFRESH_MS, tick)
 
-        def poll() -> None:
-            """Côté fenêtre : affiche les rangs au fur et à mesure qu'ils arrivent."""
-            while True:
-                try:
-                    item = results.get_nowait()
-                except queue.Empty:
-                    self.after(100, poll)
-                    return
-                if item is None:
-                    self._refreshing = False
-                    return
-                if item[0] == "status":
-                    self._show_status(item[1])
-                    continue
-                _kind, account, result = item
-                self._ranks[account.id] = result
-                self._apply_rank(account)
-
-        threading.Thread(target=work, daemon=True).start()
-        poll()
+        self.after(AUTO_REFRESH_MS, tick)
 
     def _toggle_autostart(self) -> None:
         enabled = bool(self.autostart.get())
@@ -452,6 +564,8 @@ class App(ctk.CTk):
         self.vault = Vault()
         self._master = ""
         self._ranks = {}
+        self._lcu_gen += 1   # annule une lecture du client LoL en attente
+        self._auto_gen += 1  # arrête l'actualisation automatique
         self._show_unlock(auto=False)
 
     def _add(self) -> None:
@@ -464,8 +578,7 @@ class App(ctk.CTk):
         self.vault.upsert(account)
         self._ranks.pop(account.id, None)  # le Riot ID a peut-être changé : on recharge
         self._render()
-        if stats.load_key():
-            self._refresh_ranks()
+        self._refresh_ranks(manual=False)
 
     def _delete(self, account: Account) -> None:
         if messagebox.askyesno("Supprimer", f"Supprimer le compte « {account.label} » ?"):
@@ -473,23 +586,31 @@ class App(ctk.CTk):
             self._render()
 
     def _set_status(self, text: str) -> None:
-        self.after(0, lambda: self._show_status(text))
+        self._put("status", text)  # appelé depuis un thread de fond
 
     def _connect(self, account: Account) -> None:
         if self._busy:
             return
         self._busy = True
+        self._lcu_gen += 1  # une nouvelle connexion annule la lecture du compte précédent
+        gen = self._lcu_gen
 
         def work() -> None:
+            logged_in = False
+            before = None
             try:
+                before = lcu.find_connection()  # client LoL ouvert avant le changement : on l'ignorera ensuite
                 riot.login(account.username, account.password, self._set_status)
                 self._set_status(f"Connexion envoyée pour « {account.label} » ✔")
+                logged_in = True
             except riot.RiotError as exc:
                 self._set_status(f"⚠ {exc}")
             except Exception as exc:  # erreur inattendue : on l'affiche plutôt que de planter
                 self._set_status(f"⚠ Erreur : {exc}")
             finally:
                 self._busy = False
+            if logged_in:  # lit le Riot ID et le rang quand le client LoL est ouvert (jusqu'à 5 minutes d'attente)
+                self._watch_client(account.id, before, gen)
 
         threading.Thread(target=work, daemon=True).start()
 

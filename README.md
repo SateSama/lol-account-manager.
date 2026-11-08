@@ -25,14 +25,15 @@ protégé par Windows (DPAPI). Aux lancements suivants, le coffre s'ouvre tout s
 
 ## Rang et winrate
 
-Chaque compte peut afficher son rang (Solo/Duo, sinon Flex), ses LP et son winrate.
+Chaque carte affiche le rang (Solo/Duo, sinon Flex), les LP et le winrate du compte, avec l'ancienneté de l'information quand elle date.
 
-1. Clique sur **🔑 Clé API Riot** et colle ta clé de développement (gratuite sur [developer.riotgames.com](https://developer.riotgames.com), elle commence par `RGAPI-`). Elle expire au bout de 24 h : recolle-la quand l'appli affiche « Clé API refusée ou expirée ».
-2. Dans **+ Ajouter** ou **✎**, remplis **Riot ID** (`Nom#TAG`) et choisis le **serveur**. Ce n'est pas l'identifiant de connexion.
-3. Les rangs se chargent à l'ouverture. Le bouton **↻** les actualise.
+**Automatique, sans clé API.** Quand tu cliques sur « Connexion » et que le client LoL s'ouvre, l'appli lit dans le client (API locale du client, lecture seule, uniquement sur ton PC) le Riot ID et le rang du compte connecté, puis les enregistre dans le coffre chiffré. Tu n'as rien à saisir. Le rang d'un compte est donc mis à jour à chaque connexion avec lui, et le dernier rang connu reste affiché ensuite.
+- Le bouton **↻** lit aussi le client s'il est déjà ouvert, si son Riot ID correspond à un de tes comptes.
+- Si le client n'est pas ouvert, il n'y a rien à lire : le dernier rang connu reste affiché.
 
-Seuls le Riot ID et la clé API sont envoyés à Riot (API officielle). L'identifiant de connexion et le mot de passe ne quittent jamais le PC.
-La clé est enregistrée en clair dans `%APPDATA%\LolAccountManager\settings.json`.
+**Facultatif : clé API Riot.** Pour actualiser tous les rangs sans te connecter, colle une clé de développement gratuite avec **🔑 Clé API Riot** (sur [developer.riotgames.com](https://developer.riotgames.com), elle commence par `RGAPI-` et expire au bout de 24 h). Il faut alors le **Riot ID** (`Nom#TAG`) et le serveur du compte, qui se remplissent tout seuls à la première connexion. Avec une clé, les rangs se rechargent à l'ouverture, puis toutes les 30 minutes, et avec **↻**.
+- Seuls le Riot ID et la clé API sont envoyés à Riot (API officielle). L'identifiant de connexion et le mot de passe ne quittent jamais le PC.
+- La clé est enregistrée en clair dans `%APPDATA%\LolAccountManager\settings.json`.
 
 ## Utilisation
 

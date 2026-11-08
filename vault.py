@@ -32,6 +32,7 @@ class Account:
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     riot_id: str = ""      # « Nom#TAG », pour afficher le rang (facultatif)
     region: str = "EUW"    # serveur du compte (voir stats.REGIONS)
+    rank: dict = field(default_factory=dict)  # dernier rang connu (voir stats.RankInfo.to_dict)
 
 
 def _derive_key(master: str, salt: bytes) -> bytes:

@@ -9,7 +9,8 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from datetime import date
 
 from vault import APP_DIR
 
@@ -73,6 +74,26 @@ class RankInfo:
 
     def winrate_text(self) -> str:
         return f"{self.winrate} % ({self.wins}V {self.losses}D)"
+
+    def to_dict(self) -> dict:
+        """Version enregistrable dans le coffre (dernier rang connu), datée d'aujourd'hui."""
+        return {**asdict(self), "updated": date.today().isoformat()}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RankInfo":
+        return cls(str(data["tier"]), str(data.get("division", "")), int(data.get("lp", 0)),
+                   int(data.get("wins", 0)), int(data.get("losses", 0)), str(data.get("queue", "")))
+
+
+def age_text(updated: str | None) -> str:
+    """« hier », « il y a 3 j »... Chaîne vide si c'est d'aujourd'hui ou si la date est illisible."""
+    try:
+        days = (date.today() - date.fromisoformat(updated or "")).days
+    except ValueError:
+        return ""
+    if days <= 0:
+        return ""
+    return "hier" if days == 1 else f"il y a {days} j"
 
 
 # ---------------------------------------------------------------- clé API (réglages locaux)
