@@ -23,6 +23,17 @@ protégé par Windows (DPAPI). Aux lancements suivants, le coffre s'ouvre tout s
   (oublie le souvenir, le mot de passe sera redemandé) ou l'interrupteur « Ne pas redemander le mot de passe sur ce PC ».
 - Si le mot de passe mémorisé ne marche plus (coffre recréé, autre session Windows), il est oublié et l'écran de saisie réapparaît.
 
+## Rang et winrate
+
+Chaque compte peut afficher son rang (Solo/Duo, sinon Flex), ses LP et son winrate.
+
+1. Clique sur **🔑 Clé API Riot** et colle ta clé de développement (gratuite sur [developer.riotgames.com](https://developer.riotgames.com), elle commence par `RGAPI-`). Elle expire au bout de 24 h : recolle-la quand l'appli affiche « Clé API refusée ou expirée ».
+2. Dans **+ Ajouter** ou **✎**, remplis **Riot ID** (`Nom#TAG`) et choisis le **serveur**. Ce n'est pas l'identifiant de connexion.
+3. Les rangs se chargent à l'ouverture. Le bouton **↻** les actualise.
+
+Seuls le Riot ID et la clé API sont envoyés à Riot (API officielle). L'identifiant de connexion et le mot de passe ne quittent jamais le PC.
+La clé est enregistrée en clair dans `%APPDATA%\LolAccountManager\settings.json`.
+
 ## Utilisation
 
 1. **+ Ajouter** pour enregistrer un compte (nom affiché, identifiant, mot de passe, note).
@@ -45,7 +56,7 @@ Dans ce cas, dis-le et on ajoutera un clic sur le champ.
 - La connexion est refusée si une partie est en cours.
 - Si un compte a la double authentification, il faudra saisir le code à la main.
 - Le presse-papiers est vidé juste après la saisie.
-- Rien n'est envoyé sur internet : le coffre est dans `%APPDATA%\LolAccountManager\vault.bin`.
+- Le coffre est dans `%APPDATA%\LolAccountManager\vault.bin`. Les identifiants et mots de passe ne sont jamais envoyés sur internet (seul le Riot ID l'est, pour afficher le rang).
 - L'appli ne touche jamais au jeu, seulement au client Riot (reste dans ce cadre pour les CGU).
 
 ## Faire un .exe (facultatif)

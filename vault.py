@@ -30,6 +30,8 @@ class Account:
     password: str
     note: str = ""
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    riot_id: str = ""      # « Nom#TAG », pour afficher le rang (facultatif)
+    region: str = "EUW"    # serveur du compte (voir stats.REGIONS)
 
 
 def _derive_key(master: str, salt: bytes) -> bytes:
