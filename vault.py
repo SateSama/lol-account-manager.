@@ -9,7 +9,7 @@ import base64
 import json
 import os
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -65,7 +65,10 @@ class Vault:
         except InvalidToken as exc:
             raise WrongPassword from exc
         self._fernet = fernet
-        self.accounts = [Account(**item) for item in data]
+        # On ignore les champs qu'on ne connaît pas : un coffre enregistré par une version plus récente
+        # (ou plus ancienne) de l'appli s'ouvre quand même, au lieu de faire planter le démarrage.
+        known = {f.name for f in fields(Account)}
+        self.accounts = [Account(**{k: v for k, v in item.items() if k in known}) for item in data]
 
     def save(self) -> None:
         assert self._fernet is not None
