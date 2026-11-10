@@ -118,19 +118,11 @@ def ensure_league_launched(on_status: StatusCallback = lambda _msg: None, *,
         return False
     on_status("Lancement de League of Legends…")
     deadline = time.time() + timeout
-    clicks = 0
     while time.time() < deadline:
-        # Le bouton « Jouer » n'existe qu'une fois connecté : on laisse d'abord le temps à la connexion.
-        if _wait_until_running(LEAGUE_CLIENT, 6):
-            return True
-        if clicks < 4 and _click_play():
-            clicks += 1
-            on_status("Clic sur « Jouer »…")
-        else:
-            try:
-                _launch_league(client)
-            except OSError:
-                return False
+        try:
+            _launch_league(client)
+        except OSError:
+            return False
         if _wait_until_running(LEAGUE_CLIENT, retry_every):
             return True
         on_status("En attente de League of Legends (code de double authentification ?)…")
@@ -155,23 +147,6 @@ def _wait_for_window(timeout: float):
 # Si les clics tombent à côté après une mise à jour de Riot, ajuste ces deux valeurs.
 USERNAME_POS = (200, 258)
 PASSWORD_POS = (200, 322)
-
-
-# Bouton « Jouer » du Riot Client (onglet League of Legends) : distance depuis le coin BAS-gauche
-# de la fenêtre, mesurée sur le Riot Client actuel. Ajuste si le clic tombe à côté après une mise à jour.
-PLAY_FROM_LEFT = 227
-PLAY_FROM_BOTTOM = 68
-
-
-def _click_play() -> bool:
-    """Clique sur le bouton « Jouer » du Riot Client. Renvoie False si la fenêtre est introuvable."""
-    try:
-        window = _wait_for_window(3)
-        left, top, height = max(window.left, 0), max(window.top, 0), window.height
-        pyautogui.click(left + PLAY_FROM_LEFT, top + height - PLAY_FROM_BOTTOM)
-        return True
-    except Exception:
-        return False
 
 
 def _click_in_window(window, pos: tuple[int, int]) -> None:
