@@ -103,25 +103,30 @@ def _wait_until_running(process: str, timeout: float) -> bool:
 
 
 def ensure_league_launched(on_status: StatusCallback = lambda _msg: None, *,
-                           first_wait: float = 60.0, second_wait: float = 60.0) -> bool:
-    """Après la connexion : vérifie que le client LoL s'ouvre, et le lance sinon.
+                           timeout: float = 180.0, retry_every: float = 8.0) -> bool:
+    """Juste après la connexion : ouvre le client LoL tout de suite.
 
-    Le Riot Client lance normalement League tout seul une fois connecté. On lui laisse `first_wait`
-    secondes (le temps d'un éventuel code de double authentification), puis on lui redemande une fois.
-    Renvoie True si le client est ouvert.
-    (Le client LoL est le salon : la partie elle-même ne démarre que quand tu lances une file.)
+    On redemande le lancement au Riot Client dès que possible, puis toutes les `retry_every` secondes
+    jusqu'à ce que le client soit ouvert (ça couvre aussi le temps d'un code de double authentification).
+    Renvoie True si le client est ouvert. (La partie elle-même ne démarre que quand tu lances une file.)
     """
     if _is_running(LEAGUE_CLIENT):
         return True
-    on_status("En attente du client League of Legends (code de double authentification ?)…")
-    if _wait_until_running(LEAGUE_CLIENT, first_wait):
-        return True
-    on_status("Lancement de League of Legends…")
     try:
-        _launch_league(find_client())
-    except (RiotError, OSError):
+        client = find_client()
+    except RiotError:
         return False
-    return _wait_until_running(LEAGUE_CLIENT, second_wait)
+    on_status("Lancement de League of Legends…")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            _launch_league(client)
+        except OSError:
+            return False
+        if _wait_until_running(LEAGUE_CLIENT, retry_every):
+            return True
+        on_status("En attente de League of Legends (code de double authentification ?)…")
+    return False
 
 
 def _wait_for_window(timeout: float):
