@@ -20,25 +20,35 @@ AUTO_REFRESH_MS = 30 * 60 * 1000  # actualisation automatique des rangs : toutes
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
+try:  # police native de Windows pour tous les widgets (sinon customtkinter utilise Roboto)
+    ctk.ThemeManager.theme["CTkFont"]["Windows"]["family"] = theme.FONT
+except (KeyError, AttributeError, TypeError):
+    pass
+
+
+def font(size: int = 13, weight: str = "normal") -> ctk.CTkFont:
+    return ctk.CTkFont(size=size, weight=weight)
 
 
 # ---------------------------------------------------------------- petits widgets stylés
 def primary_button(parent, text: str, command, width: int = 96, **kwargs) -> ctk.CTkButton:
-    """Bouton doré (action principale)."""
+    """Bouton clair (action principale)."""
+    kwargs.setdefault("height", 34)
     return ctk.CTkButton(parent, text=text, command=command, width=width, corner_radius=8,
                          fg_color=theme.ACCENT, hover_color=theme.ACCENT_HOVER,
-                         text_color=theme.ON_ACCENT, font=ctk.CTkFont(weight="bold"), **kwargs)
+                         text_color=theme.ON_ACCENT, font=font(13, "bold"), **kwargs)
 
 
 def ghost_button(parent, text: str, command, width: int = 100, **kwargs) -> ctk.CTkButton:
     """Bouton discret avec bordure (action secondaire)."""
+    kwargs.setdefault("height", 34)
     return ctk.CTkButton(parent, text=text, command=command, width=width, corner_radius=8,
                          fg_color="transparent", hover_color=theme.CARD_HOVER,
                          border_width=1, border_color=theme.BORDER, text_color=theme.TEXT, **kwargs)
 
 
 def icon_button(parent, text: str, command, hover: str = theme.CARD_HOVER) -> ctk.CTkButton:
-    return ctk.CTkButton(parent, text=text, command=command, width=34, corner_radius=8,
+    return ctk.CTkButton(parent, text=text, command=command, width=32, height=32, corner_radius=8,
                          fg_color="transparent", hover_color=hover, text_color=theme.MUTED)
 
 
@@ -149,12 +159,49 @@ class KeyDialog(ctk.CTkToplevel):
         self.destroy()
 
 
+class SettingsDialog(ctk.CTkToplevel):
+    """Réglages : démarrage avec Windows, mot de passe mémorisé, clé API Riot."""
+
+    def __init__(self, app: "App") -> None:
+        super().__init__(app, fg_color=theme.BG)
+        self.title("Réglages")
+        self.geometry("440x380")
+        self.resizable(False, False)
+        self.transient(app)
+        self.after(150, self.grab_set)
+
+        ctk.CTkLabel(self, text="Réglages", text_color=theme.TEXT, font=font(18, "bold"),
+                     anchor="w").pack(fill="x", padx=24, pady=(22, 12))
+
+        # les interrupteurs sont gardés sur l'appli : ses méthodes _toggle_* les lisent
+        app.autostart = switch(self, "Lancer au démarrage de Windows", app._toggle_autostart)
+        app.autostart.pack(anchor="w", padx=24, pady=6)
+        if startup.is_enabled():
+            app.autostart.select()
+        app.remember_switch = switch(self, "Ne pas redemander le mot de passe sur ce PC", app._toggle_remember)
+        app.remember_switch.pack(anchor="w", padx=24, pady=6)
+        if remember.is_enabled():
+            app.remember_switch.select()
+
+        ctk.CTkFrame(self, height=1, fg_color=theme.BORDER).pack(fill="x", padx=24, pady=(16, 14))
+        ctk.CTkLabel(self, text="Rang et winrate", text_color=theme.TEXT, font=font(14, "bold"),
+                     anchor="w").pack(fill="x", padx=24)
+        ctk.CTkLabel(
+            self, justify="left", anchor="w", text_color=theme.MUTED, wraplength=390, font=font(12),
+            text="Le rang est lu automatiquement dans le client LoL quand tu te connectes avec un compte. "
+                 "Une clé API Riot (facultatif) permet d'actualiser tous les rangs sans te connecter.",
+        ).pack(fill="x", padx=24, pady=(4, 10))
+        ghost_button(self, "Clé API Riot…", app._ask_key, width=140).pack(anchor="w", padx=24)
+
+        primary_button(self, "Fermer", self.destroy, width=110).pack(side="bottom", anchor="e", padx=24, pady=20)
+
+
 class App(ctk.CTk):
     def __init__(self) -> None:
         super().__init__(fg_color=theme.BG)
         self.title("LoL Account Manager")
-        self.geometry("560x640")
-        self.minsize(520, 420)
+        self.geometry("580x660")
+        self.minsize(540, 440)
         self.vault = Vault()
         self._master = ""
         self._busy = False
@@ -194,14 +241,14 @@ class App(ctk.CTk):
             return
         self._clear()
         creating = not Vault.exists()
-        box = ctk.CTkFrame(self, fg_color=theme.CARD, corner_radius=16,
+        box = ctk.CTkFrame(self, fg_color=theme.CARD, corner_radius=14,
                            border_width=1, border_color=theme.BORDER)
         box.place(relx=0.5, rely=0.45, anchor="center")
         inner = ctk.CTkFrame(box, fg_color="transparent")
         inner.pack(padx=36, pady=30)
 
-        ctk.CTkLabel(inner, text="LoL Account Manager", text_color=theme.ACCENT,
-                     font=ctk.CTkFont(size=24, weight="bold")).pack(pady=(0, 6))
+        ctk.CTkLabel(inner, text="LoL Account Manager", text_color=theme.TEXT,
+                     font=font(22, "bold")).pack(pady=(0, 6))
         ctk.CTkLabel(
             inner,
             text="Crée ton mot de passe maître.\nIl chiffre tous tes comptes et ne peut pas être récupéré."
@@ -265,11 +312,12 @@ class App(ctk.CTk):
 
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(fill="x", padx=18, pady=(18, 10))
-        ctk.CTkLabel(header, text="Mes comptes", text_color=theme.TEXT,
-                     font=ctk.CTkFont(size=22, weight="bold")).pack(side="left")
-        primary_button(header, "+ Ajouter", self._add, width=90).pack(side="right")
-        ghost_button(header, "🔒 Verrouiller", self._lock).pack(side="right", padx=(0, 8))
-        ghost_button(header, "↻", self._refresh_ranks, width=36).pack(side="right", padx=(0, 8))
+        ctk.CTkLabel(header, text="Comptes", text_color=theme.TEXT,
+                     font=font(20, "bold")).pack(side="left")
+        primary_button(header, "+ Ajouter", self._add, width=86).pack(side="right")
+        ghost_button(header, "Verrouiller", self._lock, width=92).pack(side="right", padx=(0, 8))
+        ghost_button(header, "Réglages", self._open_settings, width=84).pack(side="right", padx=(0, 8))
+        ghost_button(header, "Actualiser", self._refresh_ranks, width=84).pack(side="right", padx=(0, 8))
 
         ctk.CTkFrame(self, height=1, fg_color=theme.BORDER).pack(fill="x", padx=18)
 
@@ -278,21 +326,8 @@ class App(ctk.CTk):
                                                  scrollbar_button_hover_color=theme.MUTED)
         self.list_frame.pack(fill="both", expand=True, padx=10, pady=8)
 
-        self.autostart = switch(self, "Lancer au démarrage de Windows", self._toggle_autostart)
-        self.autostart.pack(anchor="w", padx=18, pady=(6, 6))
-        if startup.is_enabled():
-            self.autostart.select()
-
-        self.remember_switch = switch(self, "Ne pas redemander le mot de passe sur ce PC", self._toggle_remember)
-        self.remember_switch.pack(anchor="w", padx=18, pady=(0, 6))
-        if remember.is_enabled():
-            self.remember_switch.select()
-
-        ghost_button(self, "🔑 Clé API Riot (facultatif)", self._ask_key, width=230, height=28).pack(
-            anchor="w", padx=18, pady=(2, 6))
-
-        self.status = ctk.CTkLabel(self, text="", text_color=theme.MUTED, anchor="w", justify="left", wraplength=460)
-        self.status.pack(fill="x", padx=18, pady=(0, 14))
+        self.status = ctk.CTkLabel(self, text="", text_color=theme.MUTED, anchor="w", justify="left", wraplength=480, font=font(12))
+        self.status.pack(fill="x", padx=20, pady=(0, 14))
         self._render()
         self._refresh_ranks(manual=False)
         self._schedule_auto_refresh()
@@ -308,32 +343,31 @@ class App(ctk.CTk):
             return
 
         for account in self.vault.accounts:
-            row = ctk.CTkFrame(self.list_frame, fg_color=theme.CARD, corner_radius=12,
+            row = ctk.CTkFrame(self.list_frame, fg_color=theme.CARD, corner_radius=10,
                                border_width=1, border_color=theme.BORDER)
             row.pack(fill="x", padx=4, pady=5)
 
-            # pastille ronde avec l'initiale du compte
-            avatar = ctk.CTkFrame(row, width=42, height=42, corner_radius=21,
-                                  fg_color=theme.avatar_color(account.id))
-            avatar.pack(side="left", padx=(12, 0), pady=10)
+            # pastille discrète avec l'initiale du compte
+            avatar = ctk.CTkFrame(row, width=40, height=40, corner_radius=10, fg_color=theme.AVATAR)
+            avatar.pack(side="left", padx=(14, 0), pady=12)
             avatar.pack_propagate(False)
-            ctk.CTkLabel(avatar, text=theme.initial(account.label), text_color="white",
-                         font=ctk.CTkFont(size=18, weight="bold")).place(relx=0.5, rely=0.5, anchor="center")
+            ctk.CTkLabel(avatar, text=theme.initial(account.label), text_color=theme.MUTED,
+                         font=font(16, "bold")).place(relx=0.5, rely=0.5, anchor="center")
 
             # les boutons sont placés avant le texte : si le rang est long, c'est le texte qui est rogné, pas les boutons
-            icon_button(row, "🗑", lambda a=account: self._delete(a), hover=theme.DANGER_HOVER).pack(side="right", padx=(0, 8))
+            icon_button(row, "✕", lambda a=account: self._delete(a), hover=theme.DANGER_HOVER).pack(side="right", padx=(0, 10))
             icon_button(row, "✎", lambda a=account: self._edit(a)).pack(side="right")
-            primary_button(row, "Connexion", lambda a=account: self._connect(a), width=96).pack(side="right", padx=8)
+            primary_button(row, "Connexion", lambda a=account: self._connect(a), width=92, height=32).pack(side="right", padx=8)
 
             info = ctk.CTkFrame(row, fg_color="transparent")
             info.pack(side="left", fill="x", expand=True, padx=12, pady=8)
             ctk.CTkLabel(info, text=account.label, text_color=theme.TEXT,
-                         font=ctk.CTkFont(size=15, weight="bold"), anchor="w").pack(fill="x")
+                         font=font(14, "bold"), anchor="w").pack(fill="x")
             sub = account.username + (f"  ·  {account.note}" if account.note else "")
-            ctk.CTkLabel(info, text=sub, text_color=theme.MUTED, anchor="w").pack(fill="x")
+            ctk.CTkLabel(info, text=sub, text_color=theme.MUTED, anchor="w", font=font(12)).pack(fill="x")
             rank_label = ctk.CTkLabel(info, text="", anchor="w", justify="left", wraplength=120,
-                                       font=ctk.CTkFont(size=12, weight="bold"))
-            rank_label.pack(fill="x")
+                                       font=font(12, "bold"))
+            rank_label.pack(fill="x", pady=(2, 0))
             # le texte passe à la ligne selon la place disponible : il ne pousse jamais les boutons hors de la carte
             info.bind("<Configure>", lambda e, lbl=rank_label: lbl.configure(wraplength=max(e.width - 8, 80)), add="+")
             self._rank_labels[account.id] = rank_label
@@ -369,8 +403,8 @@ class App(ctk.CTk):
                 text = f"{info.rank_text()}\n{info.winrate_text()}" + (f" · {age}" if age else "")
                 return text, theme.TIER_COLORS.get(info.tier, theme.TEXT)
         if account.riot_id:
-            return "Rang : clique sur ↻ ou connecte-toi avec ce compte", theme.MUTED
-        return "Rang : connecte-toi une fois avec ce compte (ou ajoute son Riot ID avec ✎)", theme.MUTED
+            return "Rang : clique sur Actualiser ou connecte-toi avec ce compte", theme.MUTED
+        return "Rang : connecte-toi une fois avec ce compte", theme.MUTED
 
     def _apply_rank(self, account: Account) -> None:
         """Écrit le rang du compte dans sa carte."""
@@ -454,7 +488,7 @@ class App(ctk.CTk):
                     self._show_status(f"Rang de « {match.label} » lu dans le client LoL ✔")
             elif manual:
                 self._show_status(f"Le client LoL est connecté avec {riot_id}, un compte que je ne connais pas "
-                                  "encore : connecte-toi avec l'appli ou ajoute ce Riot ID (✎).")
+                                  "encore : connecte-toi avec l'appli ou ajoute ce Riot ID en modifiant un compte.")
 
     def _read_client_once(self, manual: bool) -> None:
         """Si le client LoL est ouvert, lit son compte et son rang (sans clé API)."""
@@ -496,13 +530,16 @@ class App(ctk.CTk):
                 else:
                     self._put("known", account.id, info)
             if fatal:  # message d'aide en bas de la fenêtre, avec la marche à suivre
-                hint = ("régénère-la sur developer.riotgames.com puis colle-la avec le bouton 🔑"
-                        if "Clé API" in fatal else "réessaie dans une minute avec ↻")
+                hint = ("régénère-la sur developer.riotgames.com puis colle-la dans Réglages → Clé API Riot"
+                        if "Clé API" in fatal else "réessaie dans une minute avec Actualiser")
                 self._put("status", f"⚠ {fatal} : {hint}")
         finally:
             self._put("done")
 
     # ------------------------------------------------------------ rangs
+    def _open_settings(self) -> None:
+        SettingsDialog(self)
+
     def _ask_key(self) -> None:
         KeyDialog(self, self._refresh_ranks)
 

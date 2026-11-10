@@ -103,13 +103,17 @@ def _wait_until_running(process: str, timeout: float) -> bool:
 
 
 def ensure_league_launched(on_status: StatusCallback = lambda _msg: None, *,
-                           first_wait: float = 25.0, second_wait: float = 60.0) -> bool:
+                           first_wait: float = 60.0, second_wait: float = 60.0) -> bool:
     """Après la connexion : vérifie que le client LoL s'ouvre, et le lance sinon.
 
-    Le Riot Client lance normalement League tout seul une fois connecté. Si ce n'est pas le cas
-    au bout de `first_wait` secondes, on lui redemande une fois. Renvoie True si le client est ouvert.
+    Le Riot Client lance normalement League tout seul une fois connecté. On lui laisse `first_wait`
+    secondes (le temps d'un éventuel code de double authentification), puis on lui redemande une fois.
+    Renvoie True si le client est ouvert.
     (Le client LoL est le salon : la partie elle-même ne démarre que quand tu lances une file.)
     """
+    if _is_running(LEAGUE_CLIENT):
+        return True
+    on_status("En attente du client League of Legends (code de double authentification ?)…")
     if _wait_until_running(LEAGUE_CLIENT, first_wait):
         return True
     on_status("Lancement de League of Legends…")
