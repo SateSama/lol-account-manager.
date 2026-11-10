@@ -124,7 +124,7 @@ class KeyDialog(ctk.CTkToplevel):
     def __init__(self, parent: ctk.CTk, on_save) -> None:
         super().__init__(parent, fg_color=theme.BG)
         self.title("Clé API Riot")
-        self.geometry("420x330")
+        self.geometry("420x370")
         self.resizable(False, False)
         self.transient(parent)
         self.after(150, self.grab_set)
@@ -137,7 +137,8 @@ class KeyDialog(ctk.CTkToplevel):
                  "tous les rangs sans que tu te connectes :\n"
                  "1. Va sur developer.riotgames.com et connecte-toi avec ton compte Riot.\n"
                  "2. Copie la « Development API Key » (commence par RGAPI-).\n"
-                 "Elle expire au bout de 24 h : recolle-la quand l'appli le demande.",
+                 "Elle expire au bout de 24 h : recolle-la quand l'appli le demande.\n"
+                 "Laisse le champ vide puis enregistre pour supprimer la clé.",
         ).pack(fill="x", padx=24, pady=(20, 10))
         self.key = entry(self, show="•")
         self.key.pack(fill="x", padx=24)
@@ -146,10 +147,7 @@ class KeyDialog(ctk.CTkToplevel):
         self.bind("<Return>", lambda _e: self._save())
 
     def _save(self) -> None:
-        key = self.key.get().strip()
-        if not key:
-            messagebox.showwarning("Clé manquante", "Colle ta clé API Riot.", parent=self)
-            return
+        key = self.key.get().strip()  # vide = supprimer la clé (le rang vient alors seulement du client LoL)
         try:
             stats.save_key(key)
         except OSError as exc:
