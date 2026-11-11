@@ -33,6 +33,9 @@ class Account:
     riot_id: str = ""      # « Nom#TAG », pour afficher le rang (facultatif)
     region: str = "EUW"    # serveur du compte (voir stats.REGIONS)
     rank: dict = field(default_factory=dict)  # dernier rang connu (voir stats.RankInfo.to_dict)
+    games: str = "lol"     # jeu(x) du compte : « lol », « valo » ou « both »
+    valo_tier: str = ""    # rang Valorant (saisi à la main, Riot ne le donne pas) : « GOLD », « RADIANT »... vide = non classé
+    valo_div: int = 0      # division Valorant : 1 à 3 (0 pour Radiant ou non classé)
 
 
 def _derive_key(master: str, salt: bytes) -> bytes:

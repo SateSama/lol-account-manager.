@@ -27,6 +27,7 @@ RIOT_PROCESSES = [
     "LeagueClientUx.exe",
     "LeagueClientUxRender.exe",
 ]
+VALORANT_GAME = "VALORANT-Win64-Shipping.exe"  # partie de Valorant en cours
 GAME_PROCESS = "League of Legends.exe"      # la partie elle-même (existe seulement pendant un match)
 LEAGUE_CLIENT = "LeagueClientUx.exe"          # le client LoL (salon, file d'attente...)
 DEFAULT_CLIENT = r"C:\Riot Games\Riot Client\RiotClientServices.exe"
@@ -85,10 +86,10 @@ def _clear_session() -> None:
         pass
 
 
-def _launch_league(client: str) -> None:
-    """Demande au Riot Client de lancer League of Legends (au démarrage, ou une 2e fois si besoin)."""
+def _launch_league(client: str, product: str = "league_of_legends") -> None:
+    """Demande au Riot Client de lancer un jeu (League of Legends par défaut, ou « valorant »)."""
     subprocess.Popen(
-        [client, "--launch-product=league_of_legends", "--launch-patchline=live"],
+        [client, f"--launch-product={product}", "--launch-patchline=live"],
         creationflags=NO_WINDOW,
     )
 
@@ -201,6 +202,7 @@ def login(
     startup_timeout: float = 45.0,
     render_delay: float = 3.0,
     key_pause: float = 0.4,
+    product: str = "league_of_legends",
 ) -> None:
     """Ferme le client, le relance et saisit les identifiants.
 
@@ -208,7 +210,7 @@ def login(
     formulaire s'affiche. Augmente-le si la saisie part trop tôt.
     """
     client = find_client()
-    if _is_running(GAME_PROCESS):
+    if _is_running(GAME_PROCESS) or _is_running(VALORANT_GAME):
         raise RiotError("Une partie est en cours : ferme-la avant de changer de compte.")
 
     on_status("Fermeture du client Riot…")
@@ -216,7 +218,7 @@ def login(
     _clear_session()
 
     on_status("Lancement du client Riot…")
-    _launch_league(client)
+    _launch_league(client, product)
 
     on_status("Attente de la fenêtre de connexion…")
     _wait_for_window(startup_timeout)

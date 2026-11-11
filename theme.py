@@ -29,3 +29,7 @@ TIER_COLORS = {
 def initial(label: str) -> str:
     label = label.strip()
     return label[:1].upper() if label else "?"
+
+# Rangs propres à Valorant (les autres paliers partagent les couleurs de TIER_COLORS)
+VALO_COLORS = {"ASCENDANT": "#3fbf7f", "IMMORTAL": "#e5636b", "RADIANT": "#f2e08a"}
+

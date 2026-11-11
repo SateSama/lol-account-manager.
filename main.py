@@ -9,6 +9,7 @@ import tkinter.messagebox as messagebox
 import customtkinter as ctk
 
 import lcu
+import rankicons
 import remember
 import riot
 import startup
@@ -70,7 +71,7 @@ class AccountDialog(ctk.CTkToplevel):
     def __init__(self, parent: ctk.CTk, account: Account | None, on_save) -> None:
         super().__init__(parent, fg_color=theme.BG)
         self.title("Modifier le compte" if account else "Nouveau compte")
-        self.geometry("360x600")
+        self.geometry("360x860")
         self.resizable(False, False)
         self.transient(parent)
         self.after(150, self.grab_set)
@@ -82,18 +83,32 @@ class AccountDialog(ctk.CTkToplevel):
         self.username = self._field("Identifiant Riot", account.username if account else "")
         self.password = self._field("Mot de passe", account.password if account else "", secret=True)
         self.note = self._field("Note (facultatif)", account.note if account else "")
-        self.riot_id = self._field("Riot ID (Nom#TAG) : rempli tout seul à la 1re connexion", account.riot_id if account else "")
+        self.riot_id = self._field("Riot ID LoL (Nom#TAG) : rempli tout seul à la 1re connexion", account.riot_id if account else "")
 
-        ctk.CTkLabel(self, text="Serveur", anchor="w", text_color=theme.MUTED).pack(fill="x", padx=24, pady=(14, 2))
-        self.region = ctk.CTkOptionMenu(
-            self, values=list(stats.REGIONS), fg_color=theme.FIELD, button_color=theme.BORDER,
-            button_hover_color=theme.CARD_HOVER, text_color=theme.TEXT, dropdown_fg_color=theme.CARD,
-            dropdown_text_color=theme.TEXT, dropdown_hover_color=theme.CARD_HOVER, corner_radius=8, height=36)
-        self.region.set(account.region if account and account.region in stats.REGIONS else stats.DEFAULT_REGION)
-        self.region.pack(fill="x", padx=24)
+        game_names = {"lol": "League of Legends", "valo": "Valorant", "both": "LoL + Valorant"}
+        self._games = {v: k for k, v in game_names.items()}
+        self.game = self._menu("Jeu du compte", list(game_names.values()), game_names.get(account.games if account else "lol"))
+        self.region = self._menu("Serveur LoL", list(stats.REGIONS),
+                                 account.region if account and account.region in stats.REGIONS else stats.DEFAULT_REGION)
+
+        valo_names = ["Non classé"] + [rankicons.VALO_NAMES_FR[t] for t in rankicons.VALO_TIERS]
+        self._valo_tiers = {rankicons.VALO_NAMES_FR[t]: t for t in rankicons.VALO_TIERS}
+        current = rankicons.VALO_NAMES_FR.get(account.valo_tier, "Non classé") if account else "Non classé"
+        self.valo_tier = self._menu("Rang Valorant (à saisir : Riot ne le donne pas)", valo_names, current)
+        self.valo_div = self._menu("Division Valorant", ["1", "2", "3"], str(account.valo_div or 1) if account else "1")
 
         primary_button(self, "Enregistrer", self._save, width=200, height=38).pack(pady=20)
         self.bind("<Return>", lambda _e: self._save())
+
+    def _menu(self, title: str, values: list[str], current: str | None) -> ctk.CTkOptionMenu:
+        ctk.CTkLabel(self, text=title, anchor="w", text_color=theme.MUTED).pack(fill="x", padx=24, pady=(12, 2))
+        menu = ctk.CTkOptionMenu(
+            self, values=values, fg_color=theme.FIELD, button_color=theme.BORDER,
+            button_hover_color=theme.CARD_HOVER, text_color=theme.TEXT, dropdown_fg_color=theme.CARD,
+            dropdown_text_color=theme.TEXT, dropdown_hover_color=theme.CARD_HOVER, corner_radius=8, height=36)
+        menu.set(current if current in values else values[0])
+        menu.pack(fill="x", padx=24)
+        return menu
 
     def _field(self, title: str, value: str, secret: bool = False) -> ctk.CTkEntry:
         ctk.CTkLabel(self, text=title, anchor="w", text_color=theme.MUTED).pack(fill="x", padx=24, pady=(14, 2))
@@ -114,6 +129,9 @@ class AccountDialog(ctk.CTkToplevel):
         account.note = self.note.get().strip()
         account.riot_id = self.riot_id.get().strip()
         account.region = self.region.get()
+        account.games = self._games.get(self.game.get(), "lol")
+        account.valo_tier = self._valo_tiers.get(self.valo_tier.get(), "")
+        account.valo_div = 0 if (not account.valo_tier or account.valo_tier in rankicons.VALO_TOP) else int(self.valo_div.get())
         self._on_save(account)
         self.destroy()
 
@@ -209,6 +227,7 @@ class App(ctk.CTk):
         self._auto_gen = 0   # idem pour l'actualisation automatique
         self._ranks: dict[str, tuple[str, str]] = {}   # id du compte -> (texte, couleur) du rang
         self._rank_labels: dict[str, ctk.CTkLabel] = {}
+        self._rank_icons: dict[str, ctk.CTkLabel] = {}
         self.after(150, self._pump)
         self._show_unlock()
 
@@ -334,6 +353,7 @@ class App(ctk.CTk):
         for child in self.list_frame.winfo_children():
             child.destroy()
         self._rank_labels = {}
+        self._rank_icons = {}
 
         if not self.vault.accounts:
             ctk.CTkLabel(self.list_frame, text="Aucun compte pour l'instant.\nClique sur « + Ajouter ».",
@@ -363,12 +383,30 @@ class App(ctk.CTk):
                          font=font(14, "bold"), anchor="w").pack(fill="x")
             sub = account.username + (f"  ·  {account.note}" if account.note else "")
             ctk.CTkLabel(info, text=sub, text_color=theme.MUTED, anchor="w", font=font(12)).pack(fill="x")
-            rank_label = ctk.CTkLabel(info, text="", anchor="w", justify="left", wraplength=120,
-                                       font=font(12, "bold"))
-            rank_label.pack(fill="x", pady=(2, 0))
-            # le texte passe à la ligne selon la place disponible : il ne pousse jamais les boutons hors de la carte
-            info.bind("<Configure>", lambda e, lbl=rank_label: lbl.configure(wraplength=max(e.width - 8, 80)), add="+")
-            self._rank_labels[account.id] = rank_label
+            if account.games in ("lol", "both"):
+                lol_row = ctk.CTkFrame(info, fg_color="transparent")
+                lol_row.pack(fill="x", pady=(4, 0))
+                icon_label = ctk.CTkLabel(lol_row, text="", image=rankicons.icon("", "lol"), width=rankicons.SIZE)
+                icon_label.pack(side="left", padx=(0, 8))
+                rank_label = ctk.CTkLabel(lol_row, text="", anchor="w", justify="left", wraplength=120,
+                                           font=font(12, "bold"))
+                rank_label.pack(side="left", fill="x", expand=True)
+                # le texte passe à la ligne selon la place disponible : il ne pousse jamais les boutons hors de la carte
+                info.bind("<Configure>", lambda e, lbl=rank_label: lbl.configure(wraplength=max(e.width - 60, 80)), add="+")
+                self._rank_labels[account.id] = rank_label
+                self._rank_icons[account.id] = icon_label
+            if account.games in ("valo", "both"):
+                valo_row = ctk.CTkFrame(info, fg_color="transparent")
+                valo_row.pack(fill="x", pady=(4, 0))
+                ctk.CTkLabel(valo_row, text="", image=rankicons.icon(account.valo_tier, "valo"),
+                             width=rankicons.SIZE).pack(side="left", padx=(0, 8))
+                name = rankicons.VALO_NAMES_FR.get(account.valo_tier)
+                if name and account.valo_tier not in rankicons.VALO_TOP:
+                    name += f" {account.valo_div or 1}"
+                ctk.CTkLabel(valo_row, text=f"Valorant · {name}" if name else "Valorant · non classé", anchor="w",
+                             font=font(12, "bold"),
+                             text_color=theme.TIER_COLORS.get(account.valo_tier) or theme.VALO_COLORS.get(account.valo_tier, theme.MUTED)
+                             ).pack(side="left")
             self._apply_rank(account)
 
 
@@ -410,8 +448,12 @@ class App(ctk.CTk):
         if label is None:
             return
         text, color = self._rank_display(account)
+        tier = str(account.rank.get("tier", "")) if account.rank else ""
         try:
             label.configure(text=text, text_color=color)
+            icon_label = self._rank_icons.get(account.id)
+            if icon_label is not None:
+                icon_label.configure(image=rankicons.icon(tier, "lol"))
         except (tkinter.TclError, AttributeError):
             pass  # la carte a été recréée entre-temps
 
@@ -549,7 +591,7 @@ class App(ctk.CTk):
             if manual:
                 self._show_status("Pas de clé API : le rang se met à jour à chaque connexion depuis l'appli.")
             return
-        accounts = [a for a in self.vault.accounts if a.riot_id]
+        accounts = [a for a in self.vault.accounts if a.riot_id and a.games in ("lol", "both")]
         if self._refreshing or not accounts:
             return
         self._refreshing = True
@@ -629,14 +671,19 @@ class App(ctk.CTk):
         self._busy = True
         self._lcu_gen += 1  # une nouvelle connexion annule la lecture du compte précédent
         gen = self._lcu_gen
+        valo_only = account.games == "valo"  # compte Valorant seul : on lance Valorant, pas League
 
         def work() -> None:
             logged_in = False
             before = None
             try:
                 before = lcu.find_connection()  # client LoL ouvert avant le changement : on l'ignorera ensuite
-                riot.login(account.username, account.password, self._set_status)
+                riot.login(account.username, account.password, self._set_status,
+                           product="valorant" if valo_only else "league_of_legends")
                 self._set_status(f"Connexion envoyée pour « {account.label} » ✔")
+                if valo_only:
+                    self._set_status(f"Connexion envoyée pour « {account.label} » ✔ Valorant se lance (code de double authentification ?)")
+                    return
                 logged_in = True
                 if riot.ensure_league_launched(self._set_status):
                     self._set_status(f"League of Legends lancé avec « {account.label} » ✔")

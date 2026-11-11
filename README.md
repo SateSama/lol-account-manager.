@@ -66,3 +66,10 @@ Dans ce cas, dis-le et on ajoutera un clic sur le champ.
 pip install pyinstaller
 pyinstaller --noconsole --onefile --collect-all customtkinter main.py
 ```
+
+## Comptes Valorant et emblèmes de rang
+
+- Dans la fenêtre d'un compte, **Jeu du compte** : League of Legends, Valorant, ou les deux. Un compte Valorant seul lance Valorant à la connexion.
+- Le rang Valorant se **saisit à la main** (Riot ne le fournit pas à une appli comme celle-ci) : rang + division dans la fenêtre du compte.
+- Chaque rang a son emblème à côté du texte. Ils sont dessinés par le programme ; pour mettre tes propres images, crée un dossier `icons` à côté du programme avec des PNG nommés `gold.png`, `valo_gold.png`, etc. (liste dans `rankicons.py`).
+
